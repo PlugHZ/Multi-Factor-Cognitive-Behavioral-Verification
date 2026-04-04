@@ -196,8 +196,10 @@ export default function LoginPage() {
   //Step 4 Cognitive Challenge 
   const handleChallengeAnswer = async (choiceIndex) => {
     const reactionTime = performance.now() - questionStartTime;
+    const currentQuestion = questions[currentQ];
     const newAnswer = {
-      question_id: questions[currentQ].id,
+      question_id: currentQuestion.id,
+      type: currentQuestion.type, // เพิ่ม type เพื่อให้ backend แยกแยะได้
       selected_index: choiceIndex,
       reaction_time_ms: Math.round(reactionTime * 100) / 100,
     };

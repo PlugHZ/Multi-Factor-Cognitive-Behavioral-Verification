@@ -1,6 +1,6 @@
 # Multi-Factor Digital ID System
 
-ระบบยืนยันตัวตนแบบหลายปัจจัย (Multi-Factor Authentication) ที่มีความปลอดภัยสูง โดยผสานการตรวจสอบรหัสผ่าน, ข้อมูลชีวมิติ (ใบหน้า), และพฤติกรรมการตอบสนอง (Cognitive Behavioral) เข้าด้วยกัน เพื่อป้องกันการปลอมแปลงและบอท
+ระบบยืนยันตัวตนแบบหลายปัจจัย (Multi-Factor Authentication) ที่มีความปลอดภัยสูง โดยผสานการตรวจสอบรหัสผ่าน, ข้อมูลชีวมิติ (ใบหน้า), และพฤติกรรมการตอบสนอง (Cognitive Behavioral) เข้าด้วยกัน เพื่อป้องกันการปลอมแปลง
 
 ## ฟีเจอร์หลัก (Key Features)
 
@@ -77,28 +77,37 @@ c:\dev\DigitalID\
 2. สร้างและเปิดใช้งาน Virtual Environment:
    ```bash
    python -m venv venv
-   # สำหรับ Windows
+   # Windows
    .\venv\Scripts\activate
-   # สำหรับ Mac/Linux
+   # Mac/Linux
    source venv/bin/activate
    ```
-3. ติดตั้ง Dependencies (รวมถึงไลบรารี face_recognition ที่ต้องการ C++ Build Tools):
+3. ติดตั้งเครื่องมือช่วย Build (สำคัญมากสำหรับ Windows):
+   ```bash
+   pip install cmake wheel
+   ```
+4. ติดตั้ง Dependencies ทั้งหมด:
+
    ```bash
    pip install -r requirements.txt
    ```
-4. สร้างไฟล์ `.env` พร้อมตั้งค่าตัวแปร:
-   ```env
-   DATABASE_URL=postgresql://user:password@localhost:5432/dbname
-   SECRET_KEY=your_super_secret_key_here
-   ```
-5. เริ่มการทำงานของเซิร์ฟเวอร์:
-   ```bash
-   python main.py
-   # หรือ uvicorn app.main:app --reload
-   ```
-   Backend จะรันที่: `http://localhost:8000` (มีเอกสาร API ที่ `/docs`)
 
-### การตั้งค่า Frontend
+   > [!TIP]
+   > หาก `pip install dlib` ล้มเหลว ให้ลองหาไฟล์ `.whl` ของ dlib ที่ตรงกับเวอร์ชัน Python ของคุณมาติดตั้งแทน (เช่นจาก GitHub ของชุมชน)
+
+5. สร้างและตั้งค่าไฟล์ `.env`:
+   คัดลอกไฟล์ต้นแบบ: `cp .env.example .env` (หรือสร้างใหม่) และตั้งค่าดังนี้:
+   ```env
+   PORT=8000
+   DATABASE_URL=sqlite:///./digital_id.db  # หรือ postgresql://...
+   SECRET_KEY=your_random_secret_hash
+   ALGORITHM=HS256
+   ACCESS_TOKEN_EXPIRE_MINUTES=30
+   FACE_DISTANCE_THRESHOLD=0.40           # ความเข้มงวด (ยิ่งน้อยยิ่งตรวจละเอียด)
+   ZSCORE_THRESHOLD=2.0                   # ความเข้มงวดด่านพฤติกรรม
+   ```
+
+### 2. การตั้งค่า Frontend (React + Vite)
 
 1. เข้าไปที่โฟลเดอร์ `frontend`:
    ```bash
@@ -108,25 +117,56 @@ c:\dev\DigitalID\
    ```bash
    npm install
    ```
-3. รัน Development Server:
-   ```bash
-   npm run dev
+3. ตั้งค่า Endpoint ของ API ในไฟล์ `.env` (ถ้ามี หรือใช้ค่า Default):
+   ```env
+   VITE_API_URL=http://localhost:8000/api
    ```
-   Frontend จะรันที่: `http://localhost:5173`
-
-## ลำดับการทำงาน (Authentication Flow)
-
-1. **การลงทะเบียน (Registration)**
-   - กรอกข้อมูลรหัสผ่าน และเลือก Emoji ที่สนใจ 3 อัน (เป็นความลับ)
-   - หันหน้าให้กล้องเพื่อบันทึกโครงสร้างใบหน้า 5 มุม (Auto Capture)
-   - ทำแบบทดสอบพื้นฐานเพื่อใช้เป็น Baseline (วัดผล Reaction Time เบื้องต้น)
-
-2. **การเข้าสู่ระบบ (Login)**
-   - กรอก Username / Password
-   - ทำการกะพริบตา หรือ หันหน้าตามที่ระบบสุ่มสั่ง
-   - หันหน้า 5 มุมให้ระบบเปรียบเทียบกับฐานข้อมูล
-   - ตอบคำถาม Math หรือ Visual Emoji แบบสุ่ม แข่งกับเวลาของตัวเองในอดีต (Z-score Validation)
 
 ---
 
-_Developed with advanced security logic and optimized hybrid verification pipelines._
+## How to Run (การเดินระบบ)
+
+### รัน Backend
+
+```bash
+cd backend
+# ตรวจสอบว่าเปิด venv อยู่
+python main.py
+```
+
+Backend จะรันอยู่ที่: `http://localhost:8000`
+
+### รัน Frontend
+
+```bash
+cd frontend
+npm run dev
+```
+
+Frontend จะรันอยู่ที่: `http://localhost:5173`
+
+> [!NOTE]
+> **การทดสอบผ่านมือถือ/วง LAN:**
+> หากต้องการทดสอบผ่านมือถือในวง WiFi เดียวกัน ให้รัน Frontend ด้วย `npm run dev -- --host` และรัน Backend ด้วย `python main.py` (ซึ่งตั้งค่า `0.0.0.0` ไว้แล้ว) แล้วเข้าถึงผ่าน IP เครื่องคอมพิวเตอร์ของคุณ
+
+---
+
+## ลำดับการทำงาน (Authentication Flow)
+
+1. **ลงทะเบียน (Register)**:
+   - กรอกข้อมูลพื้นฐาน และเลือก **Secret Emojis 3 อัน**
+   - หันหน้า 5 มุม (ระบบถ่ายอัตโนมัติ)
+   - ตอบคำถาม 3 ข้อเพื่อบันทึกความเร็ว (Baseline)
+2. **เข้าสู่ระบบ (Login)**:
+   - **Step 1**: Username/Password
+   - **Step 2**: Liveness (กะพริบตา/หันหน้า) เพื่อกันการโกงด้วยรูปถ่าย
+   - **Step 3**: Face Match (เทียบใบหน้า 5 มุม)
+   - **Step 4**: Behavioral (ตอบโจทย์เลข/Emoji ลับ) สุ่มผสมกัน 3 ข้อ
+
+---
+
+## Troubleshooting (การแก้ปัญหาพื้นฐาน)
+
+- **dlib error**: ตรวจสอบว่ามี C++ Build Tools หรือยัง? หรือลองหาไฟล์ `.whl` มาลงแทน
+- **Webcam ไม่ทำงาน**: ตรวจสอบ Permission ของ Browser หรือโปรแกรมอื่นที่กำลังใช้กล้องอยู่
+- **Database Error**: หากเปลี่ยนโครงสร้างตาราง แนะนำให้ลบไฟล์ `.db` เดิมทิ้งแล้วรันใหม่เพื่อให้ระบบสร้างตารางใหม่ (Create All)

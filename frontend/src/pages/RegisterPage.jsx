@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import Webcam from 'react-webcam';
-import { registerUser, registerFace, registerBehavioral } from '../services/api';
+import { registerUser, registerFace, getRegisterChallenges, registerBehavioral } from '../services/api';
 
 /**
  * RegisterPage  หน้าลงทะเบียน 3 ขั้นตอน
@@ -19,11 +19,12 @@ const FACE_POSES = [
   { id: 'down', label: 'ก้มหน้า', icon: '👇', instruction: 'ก้มหน้าลงเล็กน้อย' },
 ];
 
-// คำถาม Enrollment
-const ENROLLMENT_QUESTIONS = [
-  { id: 'math_1', question: '7 + 8 = ?', choices: ['13', '14', '15', '16'] },
-  { id: 'math_3', question: '12 × 3 = ?', choices: ['33', '36', '39', '42'] },
-  { id: 'math_5', question: '25 - 17 = ?', choices: ['6', '7', '8', '9'] },
+// ทิ้ง EMOJI_BANK ไว้ใช้ตอน Step 1
+const EMOJI_BANK = [
+  '🐶', '🐱', '🐰', '🦊', '🐻', '🐼', '🐨', '🐯',
+  '🍔', '🍕', '🌭', '🍟', '🌮', '🍣', '🍩', '🍦',
+  '⚽', '🏀', '🏈', '🎾', '🏐', '🎱', '🏓', '🏸',
+  '🚗', '🚕', '🚙', '🚌', '🚓', '🚑', '🚒', '🚐'
 ];
 
 export default function RegisterPage() {
@@ -41,6 +42,7 @@ export default function RegisterPage() {
     email: '',
     password: '',
     full_name: '',
+    interests: [], // สำหรับเลือก Emoji 3 อัน
   });
 
   // Step 2 Face — Multi-Pose capture
@@ -49,6 +51,7 @@ export default function RegisterPage() {
   const [previewImage, setPreviewImage] = useState(null);
 
   // Step 3 Behavioral
+  const [questions, setQuestions] = useState([]); // ดึงจาก API
   const [currentQ, setCurrentQ] = useState(0);
   const [answers, setAnswers] = useState([]);
   const [questionStartTime, setQuestionStartTime] = useState(null);
@@ -59,6 +62,19 @@ export default function RegisterPage() {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
+  const handleInterestToggle = (emoji) => {
+    setFormData(prev => {
+      const interests = [...prev.interests];
+      const index = interests.indexOf(emoji);
+      if (index > -1) {
+        interests.splice(index, 1);
+      } else if (interests.length < 3) {
+        interests.push(emoji);
+      }
+      return { ...prev, interests };
+    });
+  };
+
   // Step 1 ส่งฟอร์มลงทะเบียน
   const handleRegister = async (e) => {
     e.preventDefault();
@@ -66,6 +82,12 @@ export default function RegisterPage() {
     setMessage(null);
 
     try {
+      // ตรวจสอบว่าเลือกครบ 3 อันมั้ย
+      if (formData.interests.length !== 3) {
+        setMessage({ type: 'error', text: 'กรุณาเลือก Emoji ที่ชอบให้ครบ 3 อันครับ' });
+        setLoading(false);
+        return;
+      }
       await registerUser(formData);
       setMessage({ type: 'success', text: 'ลงทะเบียนสำเร็จ! ถ่ายภาพใบหน้า 5 มุมต่อ' });
       setStep(2);
@@ -124,7 +146,11 @@ export default function RegisterPage() {
 
       await registerFace(formData.username, base64Frames, poseLabels);
 
-      setMessage({ type: 'success', text: `บันทึกใบหน้า ${frames.length} มุมสำเร็จ! ตอบคำถามต่อ` });
+      // โหลดคำถาม Enrollment (ผสม Math/Visual ตาม interests)
+      const res = await getRegisterChallenges(formData.username);
+      setQuestions(res.data.questions);
+
+      setMessage({ type: 'success', text: `บันทึกใบหน้า ${frames.length} มุมสำเร็จ! ตอบคำถามเพื่อสร้าง Baseline พฤติกรรม` });
       setStep(3);
       setCurrentQ(0);
       setAnswers([]);
@@ -132,7 +158,7 @@ export default function RegisterPage() {
     } catch (err) {
       setMessage({
         type: 'error',
-        text: err.response?.data?.detail || 'ไม่สามารถบันทึกใบหน้าได้',
+        text: err.response?.data?.detail || 'ไม่สามารถบันทึกใบหน้าได้ (เช็คว่ารัน Backend แล้ว)',
       });
     } finally {
       setLoading(false);
@@ -142,15 +168,17 @@ export default function RegisterPage() {
   // Step 3 ตอบคำถาม cognitive challenge
   const handleAnswer = async (choiceIndex) => {
     const reactionTime = performance.now() - questionStartTime;
+    const currentQuestion = questions[currentQ];
     const newAnswer = {
-      question_id: ENROLLMENT_QUESTIONS[currentQ].id,
+      question_id: currentQuestion.id,
+      type: currentQuestion.type, // เพิ่ม type เพื่อสร้าง Baseline แยกประเภทได้ถูกต้อง
       selected_index: choiceIndex,
       reaction_time_ms: Math.round(reactionTime * 100) / 100,
     };
     const updatedAnswers = [...answers, newAnswer];
     setAnswers(updatedAnswers);
 
-    if (currentQ < ENROLLMENT_QUESTIONS.length - 1) {
+    if (currentQ < questions.length - 1) {
       setCurrentQ(currentQ + 1);
       setQuestionStartTime(performance.now());
     } else {
@@ -221,6 +249,26 @@ export default function RegisterPage() {
             <div className="form-group">
               <label>ชื่อ-นามสกุล (ไม่บังคับ)</label>
               <input name="full_name" value={formData.full_name} onChange={handleInputChange} placeholder="John Doe" />
+            </div>
+
+            <div className="form-group">
+              <label style={{ display: 'block', marginBottom: '8px' }}>
+                🌟 เลือก Emoji ที่คุณชอบ 3 อัน (เป็นความลับสำหรับด่านพฤติกรรม)
+              </label>
+              <div className="emoji-selection-grid">
+                {EMOJI_BANK.map(emoji => (
+                  <div
+                    key={emoji}
+                    className={`emoji-item ${formData.interests.includes(emoji) ? 'selected' : ''}`}
+                    onClick={() => handleInterestToggle(emoji)}
+                  >
+                    {emoji}
+                  </div>
+                ))}
+              </div>
+              <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '8px' }}>
+                เลือกแล้ว: {formData.interests.length} / 3
+              </p>
             </div>
             <button className="btn btn-primary btn-full btn-lg" type="submit" disabled={loading}>
               {loading ? <span className="spinner" /> : 'ถัดไป →'}
@@ -338,23 +386,25 @@ export default function RegisterPage() {
           </div>
         )}
 
-        {/* Step 3 Cognitive Challenge */}
-        {step === 3 && currentQ < ENROLLMENT_QUESTIONS.length && (
+        {/* Step 3 Behavioral Baseline (Dynamic) */}
+        {step === 3 && questions.length > 0 && currentQ < questions.length && (
           <div>
             <div className="challenge-card">
-              <div className="question-number">
-                คำถามที่ {currentQ + 1} / {ENROLLMENT_QUESTIONS.length}
-              </div>
-              <div className="question-text">{ENROLLMENT_QUESTIONS[currentQ].question}</div>
+              <div className="question-number">คำถามที่ {currentQ + 1} / {questions.length}</div>
+              <div className="question-text">{questions[currentQ].question}</div>
               <div className="choices-grid">
-                {ENROLLMENT_QUESTIONS[currentQ].choices.map((choice, i) => (
-                  <button key={i} className="choice-btn" onClick={() => handleAnswer(i)}>
+                {questions[currentQ].choices.map((choice, i) => (
+                  <button key={i} className="choice-btn" onClick={() => handleAnswer(i)} disabled={loading}>
                     {choice}
                   </button>
                 ))}
               </div>
             </div>
-            <div className="status-message info">⏱ ระบบจับเวลาตอบอัตโนมัติ — ตอบตามปกติ</div>
+            <div className="status-message info" style={{ textAlign: 'center' }}>
+              ⏱ ระบบกำลังบันทึกความเร็วในการตอบสนองของคุณเป็นค่ามาตรฐาน (Baseline)
+              <br />
+              <b>กรุณาตอบตามความเร็วปกติของคุณ</b>
+            </div>
           </div>
         )}
 
